@@ -36,6 +36,7 @@ class DosePredictor:
     audit: dict
     ranges: dict
     peer_models: dict = field(default_factory=dict)  # quantile -> QuantileRegressor (CTDI@120 vs BMI)
+    prescan: object = None            # PrescanPredictor: BMI -> mAs, scan length (pre-scan planning)
     alpha: float = 0.10
     sklearn_version: str = ""
     trained_at: str = field(default_factory=lambda: dt.datetime.now().isoformat(timespec="seconds"))
@@ -81,6 +82,50 @@ class DosePredictor:
         if np.all(np.diff(c) > 0):
             return float(np.interp(ctdi_target, c, grid))
         return float(guess)
+
+    def log_residuals(self, target: str) -> np.ndarray:
+        """Pooled out-of-fold log residuals of the selected model (used for chaining)."""
+        y = self.train_df[target].to_numpy(float)
+        P = np.atleast_2d(self.oof[target][self.selected[target]])
+        r = (np.log(y)[None, :] - np.log(P)).ravel()
+        return r[np.isfinite(r)]
+
+    def predict_prescan(self, BMI: float, kVp: float | None = None, scan_length_cm: float | None = None) -> dict:
+        """Dose estimate BEFORE the scan: only BMI is known.
+
+        Stage 1 (statistical): BMI -> mAs the tube-current modulation will choose, and the
+        scan length, unless the length is already known and passed in.
+        Stage 2 (physics): the dose law turns those into CTDIvol and DLP.
+        The interval combines both stages' out-of-fold residuals, so it is wider - honestly so -
+        than the interval you get once the protocol is fixed.
+        """
+        if self.prescan is None:
+            raise RuntimeError("This model was trained without the pre-scan stage; re-run train.py.")
+        ps = self.prescan.predict(BMI)
+        mas = ps["mAs"]
+        length_known = scan_length_cm is not None
+        L = float(scan_length_cm) if length_known else ps["scan_length_cm"]
+        kv = float(kVp) if kVp is not None else float(self.train_df.kVp.mode().iloc[0])
+        dose = self.predict_one(BMI, kv, mas, L)
+        out = dict(BMI=BMI, kVp=kv, mAs=mas, mAs_lo=ps["mAs_lo"], mAs_hi=ps["mAs_hi"],
+                   scan_length_cm=L, length_predicted=not length_known,
+                   in_domain=self.prescan.in_domain(BMI) and dose["in_domain"],
+                   domain_note=dose["domain_note"])
+        if not length_known:
+            out["scan_length_lo"], out["scan_length_hi"] = ps["scan_length_cm_lo"], ps["scan_length_cm_hi"]
+        for t in ("CTDIvol", "DLP"):
+            out[t] = dose[t]
+            lo, hi = self.prescan.chained_interval(dose[t], self.log_residuals(t))
+            if t == "DLP" and not length_known:      # DLP also inherits the scan-length uncertainty
+                rl = self.prescan.residuals["scan_length_cm"]
+                rng = np.random.RandomState(1)
+                extra = rng.choice(rl, 20000)
+                a = rng.choice(self.prescan.residuals["mAs"], 20000)
+                b = rng.choice(self.log_residuals(t), 20000)
+                q = np.quantile(a + b + extra, [self.prescan.alpha / 2, 1 - self.prescan.alpha / 2])
+                lo, hi = float(dose[t] * np.exp(q[0])), float(dose[t] * np.exp(q[1]))
+            out[t + "_lo"], out[t + "_hi"] = lo, hi
+        return out
 
     def peer_ctdi(self, bmi: float) -> dict:
         """CTDIvol (normalised to 120 kV) achieved by peers of the same BMI in the local data."""

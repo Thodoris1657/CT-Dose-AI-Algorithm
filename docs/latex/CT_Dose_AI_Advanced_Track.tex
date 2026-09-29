@@ -1,0 +1,287 @@
+% =====================================================================
+%  CT Dose AI — Advanced (deep-learning) track: plan and data request
+%  Compile with:  pdflatex CT_Dose_AI_Advanced_Track.tex   (run twice)
+% =====================================================================
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{helvet}\renewcommand{\familydefault}{\sfdefault}
+\usepackage{microtype,amsmath,amssymb}
+\usepackage[a4paper,top=19mm,bottom=18mm,left=18mm,right=18mm]{geometry}
+\usepackage{fancyhdr,titlesec,enumitem,parskip}
+\usepackage{graphicx,booktabs,tabularx,array,colortbl}
+\usepackage{xcolor,tcolorbox,tikz}
+\usepackage[font=small,labelfont=bf,labelsep=period]{caption}
+\usepackage[hidelinks]{hyperref}
+\usetikzlibrary{arrows.meta,positioning}
+\tcbuselibrary{skins,breakable}
+
+\definecolor{ctblue}{HTML}{2A78D6}
+\definecolor{ctbluedark}{HTML}{1A4F94}
+\definecolor{ctaqua}{HTML}{1BAF7A}
+\definecolor{ctorange}{HTML}{EB6834}
+\definecolor{ctink}{HTML}{0B0B0B}
+\definecolor{ctink2}{HTML}{52514E}
+\definecolor{ctline}{HTML}{E2E2DE}
+\definecolor{ctsurf}{HTML}{F7F7F5}
+\definecolor{ctgreenbg}{HTML}{E8F6F0}
+
+\titleformat{\section}{\Large\bfseries\color{ctbluedark}}{\thesection\ \textperiodcentered\ }{0pt}{}[{\color{ctblue}\titlerule[1.4pt]}]
+\titleformat{\subsection}{\large\bfseries\color{ctink}}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{15pt}{7pt}
+\setlist[itemize]{leftmargin=14pt,itemsep=2pt,topsep=3pt}
+\setlist[enumerate]{leftmargin=16pt,itemsep=2pt,topsep=3pt}
+
+\pagestyle{fancy}\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}\renewcommand{\footrulewidth}{0.4pt}
+\fancyfoot[L]{\footnotesize\color{ctink2}CT Dose AI \textperiodcentered\ advanced track}
+\fancyfoot[R]{\footnotesize\color{ctink2}\thepage}
+
+\newcommand{\ctdi}{\ensuremath{\mathrm{CTDI}_{\mathrm{vol}}}}
+\newcommand{\mgycm}{mGy$\cdot$cm}
+
+\newtcolorbox{callout}[1][]{enhanced,breakable,colback=ctsurf,colframe=ctblue,boxrule=0pt,leftrule=2.5pt,
+  arc=2pt,left=8pt,right=8pt,top=6pt,bottom=6pt,#1}
+\newtcolorbox{warnbox}{enhanced,breakable,colback=ctsurf,colframe=ctorange,boxrule=0pt,leftrule=2.5pt,
+  arc=2pt,left=8pt,right=8pt,top=6pt,bottom=6pt}
+\newtcolorbox{safebox}{enhanced,breakable,colback=ctgreenbg,colframe=ctaqua,boxrule=0pt,leftrule=2.5pt,
+  arc=2pt,left=8pt,right=8pt,top=6pt,bottom=6pt}
+\newtcolorbox{eqbox}{enhanced,colback=ctsurf,colframe=ctline,boxrule=0.5pt,arc=3pt,
+  left=10pt,right=10pt,top=7pt,bottom=7pt}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\renewcommand{\arraystretch}{1.25}
+\newcommand{\hdr}{\rowcolor{ctsurf}}
+
+\begin{document}
+\thispagestyle{empty}
+
+\vspace*{4mm}
+{\footnotesize\bfseries\color{ctblue}\MakeUppercase{CT Dose AI \ \textperiodcentered\ \ Advanced track}}
+
+\vspace{3mm}
+{\fontsize{24}{28}\selectfont\bfseries Where deep learning earns its place}
+
+\vspace{3mm}
+{\large\color{ctink2}Three extensions beyond the physics model: a pre-scan predictor (built), virtual dose
+reduction (planned), and a scout-image network (research). With the data each one needs.\par}
+
+\vspace{6mm}
+\begin{callout}
+\textbf{The premise.} The dose law is physics, so no network will beat it --- that question is settled, and the
+report shows the evidence. The open problems are the ones physics cannot answer: \textit{what will the scanner
+choose for this patient}, \textit{how low can the dose go before the image stops being diagnostic}, and
+\textit{what does this particular body do to the beam}. All three are learnable, and the third one needs images.
+\end{callout}
+
+\vspace{2mm}
+\noindent\begin{tabularx}{\linewidth}{@{}l L l l@{}}
+\toprule
+\hdr \textbf{Track} & \textbf{Question it answers} & \textbf{Data needed} & \textbf{Status}\\
+\midrule
+\textbf{1 \ Pre-scan} & What dose will \textit{this patient} receive, before the scan? & the 50 exams (done) & \textcolor{ctaqua}{\textbf{built}}\\
+\textbf{2 \ Virtual dose reduction} & How low can we go, without irradiating anyone to find out? & raw/DICOM images, 30--50 exams & planned\\
+\textbf{3 \ Scout network} & What does this body do to the beam? & localizer images, 300+ exams & research\\
+\bottomrule
+\end{tabularx}
+
+% =====================================================================
+\section{Pre-scan dose prediction --- built}
+
+\subsection{The gap it closes}
+The dose model needs the mAs. But the tube-current modulation chooses the mAs only when the patient is already on
+the table, so before the scan the most useful question --- \textit{what dose will this patient receive?} --- could
+not be answered at all. A second, purely statistical stage now answers it:
+\begin{eqbox}
+\textbf{Stage 1 (learned):} \ BMI $\rightarrow$ mAs the ATCM will choose, \ BMI $\rightarrow$ scan length\\[3pt]
+\textbf{Stage 2 (physics):} \ mAs, kV, length $\rightarrow$ \ctdi, DLP
+\end{eqbox}
+
+\subsection{Here the flexible models win}
+Same competition, same repeated grouped cross-validation as the dose models --- but this time there is no formula
+to fall back on, and the ranking inverts:
+
+\begin{table}[h]\footnotesize
+\begin{tabularx}{\linewidth}{@{}L r r@{}}
+\toprule
+\hdr \textbf{Model (BMI as the only input)} & \textbf{mAs error} & \textbf{Scan-length error}\\
+\midrule
+Median, ignoring BMI (baseline) & 27.9\% & 9.6\%\\
+Log-linear in BMI & 23.4\% & 5.6\%\\
+Log-quadratic in BMI & 21.4\% & \cellcolor{ctgreenbg}\textbf{5.4\% (selected)}\\
+Gaussian process & 21.2\% & 5.3\%\\
+$k$-nearest neighbours & 21.4\% & 5.9\%\\
+\textbf{Random forest} & \cellcolor{ctgreenbg}\textbf{19.5\% (selected)} & 5.4\%\\
+Gradient boosting & 20.6\% & 5.7\%\\
+Neural network & 22.8\% & 6.1\%\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The random forest beats the linear model by 4 percentage points and the no-BMI baseline by 8. That is a real,
+measured gain from a flexible model --- the honest counterpart to the dose result, where the flexible models lost.
+
+\subsection{Honest uncertainty}
+Chaining two models means chaining two errors. The app convolves the out-of-fold residual distributions of both
+stages (they are independent) rather than adding variances under a normality assumption:
+
+\begin{table}[h]\footnotesize
+\begin{tabularx}{\linewidth}{@{}L r r r@{}}
+\toprule
+\hdr \textbf{Example patient (120 kV)} & \textbf{mAs} & \textbf{\ctdi{} (mGy)} & \textbf{DLP (\mgycm)}\\
+\midrule
+BMI 22 & 466 \ (309--741) & 28.2 \ (18.7--42.1) & 650 \ (420--1027)\\
+BMI 27 & 658 \ (437--1048) & 39.8 \ (26.5--59.5) & 919 \ (593--1452)\\
+BMI 35 & 1040 \ (690--1655) & 62.9 \ (41.8--93.9) & 1452 \ (937--2294)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent Roughly $\pm$35\% instead of the $\pm$7\% available once the mAs is known. Wide --- but that width
+\textit{is} the information: it says how unpredictable the modulation is, and it is exactly the quantity a
+department needs when consenting a patient or forecasting a year's collective dose.
+
+\begin{safebox}
+\textbf{Where it is in the app.} A new tab, \textbf{Pre-scan (BMI only)}: expected mAs, \ctdi{} and DLP with
+intervals, the two learned curves against the historical exams, and the model competition in an expander. Four new
+automated tests cover it, including one that requires the pre-scan interval to be at least twice the width of the
+fixed-protocol interval --- so the extra uncertainty can never be quietly lost.
+\end{safebox}
+
+% =====================================================================
+\section{Virtual dose reduction --- the highest-value next step}
+
+\subsection{The idea}
+The clinical bandit learns from radiologist scores, one patient at a time. That is safe but slow: 300 patients to
+learn what 300 labels can teach. \textbf{Noise insertion} breaks that limit. Starting from an already-acquired
+full-dose scan, one can synthesise the image that \textit{would have been obtained} at 70\%, 50\% or 30\% of the
+dose, by adding correlated noise in the projection (or image) domain according to the scanner's noise model.
+
+\begin{callout}
+Nobody is irradiated. One existing exam yields four or five labelled examples at different dose levels, and the
+radiologist scores images of the \textit{same patient} --- so the comparison is paired, which removes most of the
+between-patient variance and multiplies statistical power.
+\end{callout}
+
+\subsection{Method}
+\begin{enumerate}
+\item \textbf{Noise model.} Quantum noise in the projection domain is Poisson in the detected photon count $N$.
+To simulate dose factor $f<1$: $\tilde N = \mathrm{Binomial}(N, f)$, or in log domain add Gaussian noise of variance
+$\sigma^2 = \frac{1-f}{f}\cdot\frac{1}{N}$, then add the electronic-noise term that dominates at low $N$ and is
+what makes very low kV fail. Validate the simulator against two or three real low-dose phantom scans before
+trusting it on patients.
+\item \textbf{Where.} Projection-domain insertion (needs raw/CT-projection data from the vendor) is the gold
+standard; image-domain insertion with a noise-power-spectrum-matched texture is the practical fallback when raw
+data is not exportable and is well described in the literature.
+\item \textbf{Blinded reading.} Each patient's images at 100/70/50/30\% dose are anonymised, randomly ordered and
+scored 1--4 by two readers. Inter-reader agreement ($\kappa$) is reported.
+\item \textbf{Fit.} The same Bayesian logistic acceptability model already in the app, now with hundreds of paired
+labels; the paired structure is handled with a per-patient random effect.
+\item \textbf{Result.} The dose level at which $P(\text{acceptable}) = 0.95$, per BMI band --- measured, on your
+own images, with your own readers, before changing a single patient protocol.
+\end{enumerate}
+
+\subsection{What to ask for}
+\begin{table}[h]\footnotesize
+\begin{tabularx}{\linewidth}{@{}l L l@{}}
+\toprule
+\hdr \textbf{Item} & \textbf{Detail} & \textbf{Who provides}\\
+\midrule
+Images & 30--50 consecutive CCTA studies, DICOM, anonymised & radiology / PACS\\
+Raw data (ideal) & vendor projection data for the same studies, if exportable & vendor / physicist\\
+Dose reports & the RDSR of each study (gives true scan length too) & PACS\\
+Reading time & 2 readers $\times$ $\sim$4 hours for 150--200 blinded image sets & radiologists\\
+Approval & ethics / clinical-audit sign-off for retrospective image reuse & department\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Effort and output}
+Roughly 3--6 weeks of work: simulator (1--2 weeks), validation on phantom (a few days), reading sessions
+(scheduled), analysis (1 week). It produces a defensible, site-specific low-dose protocol --- and it is a
+publishable study in its own right.
+
+% =====================================================================
+\section{Scout-image network --- the research track}
+
+\subsection{Why an image beats BMI}
+BMI is a scalar summary of a 3-D body. Two patients with BMI 30 can differ by a factor of two in chest attenuation.
+The scanner already acquires the information that matters --- the \textbf{scout / topogram / localizer}, a
+low-dose projection radiograph used for planning --- and it is exactly the input the modulation algorithm itself
+uses. A convolutional network on the scout can therefore predict what BMI cannot:
+
+\begin{table}[h]\footnotesize
+\begin{tabularx}{\linewidth}{@{}l L L@{}}
+\toprule
+\hdr \textbf{Output} & \textbf{Why it matters} & \textbf{Label source}\\
+\midrule
+Water-equivalent diameter & enables SSDE --- patient dose, not phantom dose & computed from the axial images (AAPM 220)\\
+mAs the ATCM will select & replaces the 19.5\% BMI model; expect single digits & the exam itself\\
+Expected image noise & the missing half of the optimisation & measured in a fixed ROI\\
+Organ / effective dose & risk, not console metrics & Monte-Carlo simulation as the teacher\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Architecture and training plan}
+\begin{itemize}
+\item \textbf{Input:} the AP and lateral scout images, resized to $512\times256$, plus the patient's age, sex and
+BMI as tabular side-inputs.
+\item \textbf{Backbone:} a small pretrained CNN (ResNet-18 or EfficientNet-B0, ImageNet weights) --- pretraining
+matters enormously at these sample sizes --- with the tabular inputs concatenated before the head.
+\item \textbf{Heads:} multi-task regression (water-equivalent diameter, mAs, noise), which regularises far better
+than three separate models.
+\item \textbf{Physics-informed loss:} predict $\log$ mAs and add a consistency term so that the implied
+\ctdi{} obeys the fitted scanner law --- the network then cannot contradict the physics it sits on top of. This is
+the point at which the word ``physics-informed neural network'' becomes technically correct for this project.
+\item \textbf{Validation:} patient-level splits, never image-level; the same repeated cross-validation discipline;
+the BMI model as the baseline to beat.
+\item \textbf{Data:} 300 exams to show a signal, 1000+ for a solid result. Augmentation (translation, mild scaling,
+intensity jitter) and heavy weight decay throughout.
+\end{itemize}
+
+\subsection{Deep surrogate for Monte-Carlo dose (stretch goal)}
+A full Monte-Carlo organ-dose simulation takes minutes to hours per patient. A network trained on a few thousand
+simulated cases reproduces it in milliseconds, which turns organ dose from a research exercise into something the
+app can show while the patient is still in the room. This is a genuine use of deep learning as a
+\textit{function approximator for an expensive simulator} --- the setting where it is unambiguously the right tool.
+
+\begin{warnbox}
+\textbf{Sequencing matters.} Track 3 needs images, an ethics pathway and several hundred exams. Track 2 needs
+images from a few dozen exams and produces a clinical result on its own. Track 1 is already running on the data
+you have. Do them in that order, and each one funds the next with evidence.
+\end{warnbox}
+
+% =====================================================================
+\section{The single data request}
+
+Everything above reduces to one email to the department. In priority order:
+
+\begin{enumerate}
+\item \textbf{RDSR (radiation dose structured reports)} for the existing 50 exams and, going forward,
+automatically. Gives \ctdi, DLP, kV, mAs \textit{and the true scan length} per series --- it settles the
+``SCAN SIZE CM'' question and removes all manual typing.
+\item \textbf{The protocol fields:} gating mode (prospective/retrospective), collimation, pitch, rotation time,
+reconstruction kernel and iterative strength, heart rate.
+\item \textbf{A diagnostic-quality score (1--4)} recorded with the report, even informally. This is the label that
+makes every learning loop work.
+\item \textbf{Anonymised DICOM images} for 30--50 exams, including the scout, for tracks 2 and 3.
+\item \textbf{More exams:} 150--300 per exam type is the point where the models stop being limited by sample size.
+\end{enumerate}
+
+\begin{safebox}
+\textbf{What each request buys.} \ RDSR $\rightarrow$ DLP error from 8\% towards 1--2\%. \
+Protocol fields $\rightarrow$ removes the last of the \ctdi{} error and lets the tool reason about gating. \
+Quality scores $\rightarrow$ the clinical learning loop starts working. \
+Images $\rightarrow$ virtual dose reduction and the scout network. \
+More exams $\rightarrow$ the model competition can finally be won by something flexible.
+\end{safebox}
+
+\vfill
+{\footnotesize\color{ctink2}\rule{\linewidth}{0.4pt}\\[2pt]
+CT Dose AI \textperiodcentered\ advanced track \textperiodcentered\ prepared by Thodoris Fragos \textperiodcentered\
+repository: \url{https://github.com/Thodoris1657/CT-Dose-AI-Algorithm} \textperiodcentered\ decision-support
+software, not a medical device. Any protocol change requires medical-physicist and radiologist approval.\par}
+
+\end{document}

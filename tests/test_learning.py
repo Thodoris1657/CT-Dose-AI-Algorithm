@@ -68,3 +68,38 @@ def test_bandit_log_roundtrip(tmp_path):
     b.save_log("CCTA", tmp_path)
     d = DoseBandit.load_log("CCTA", tmp_path)
     assert len(d) == 1 and bool(d.acceptable.iloc[0])
+
+
+# ---------------------------------------------------------------- pre-scan stage
+def test_prescan_beats_the_no_BMI_baseline():
+    """BMI must carry real signal about what the scanner will choose."""
+    p = pred()
+    s = p.prescan.cv_summary["mAs"]
+    base = float(s.loc[s.model == "Median (no BMI)", "MAPE_%"].iloc[0])
+    best = float(s["MAPE_%"].min())
+    assert best < base - 3          # at least 3 percentage points better than ignoring BMI
+    sel = p.prescan.selected["mAs"]
+    assert sel != "Median (no BMI)"
+
+
+def test_prescan_predictions_increase_with_BMI():
+    p = pred()
+    vals = [p.predict_prescan(b)["CTDIvol"] for b in (20, 27, 35, 45)]
+    assert all(b > a for a, b in zip(vals, vals[1:]))
+
+
+def test_prescan_interval_is_wider_than_the_fixed_protocol_interval():
+    """Not knowing the mAs must cost accuracy — the interval has to reflect that."""
+    p = pred()
+    r = p.predict_prescan(28.0)
+    fixed = p.predict_one(28.0, r["kVp"], r["mAs"], r["scan_length_cm"])
+    w_pre = r["CTDIvol_hi"] / r["CTDIvol_lo"]
+    w_fixed = fixed["CTDIvol_hi"] / fixed["CTDIvol_lo"]
+    assert w_pre > 2 * w_fixed
+    assert r["CTDIvol_lo"] < r["CTDIvol"] < r["CTDIvol_hi"]
+
+
+def test_prescan_respects_a_known_scan_length():
+    p = pred()
+    r = p.predict_prescan(28.0, kVp=120, scan_length_cm=25.0)
+    assert r["scan_length_cm"] == 25.0 and r["length_predicted"] is False

@@ -28,6 +28,7 @@ from sklearn.base import clone
 from ctdose.data import FEATURES, TARGETS, audit, load_table, row_groups
 from ctdose.evaluation import ConformalCalibrator, cross_validate, select_one_se
 from ctdose.models import PhysicsModel, candidates
+from ctdose.prescan import PrescanPredictor
 from ctdose.predictor import DosePredictor, fit_peer_models, slug
 
 ROOT = Path(__file__).resolve().parent
@@ -88,12 +89,15 @@ def train_exam(df: pd.DataFrame, exam: str, repeats: int, k: int, alpha: float, 
         print(f"  {int((1-alpha)*100)}% interval: ×[{np.exp(cal.q_lo_):.3f}, {np.exp(cal.q_hi_):.3f}]"
               f"  (OOF coverage {cal.coverage(y, oof[name])*100:.1f}%)")
 
+    print("  --- pre-scan stage (BMI -> mAs, scan length)")
+    prescan = PrescanPredictor(alpha).fit(df, groups, k=k, repeats=max(3, repeats // 2))
+
     phys = PhysicsModel().fit(X, df.CTDIvol.to_numpy())
     ranges = {f: (float(df[f].min()), float(df[f].max())) for f in FEATURES}
     pred = DosePredictor(exam=exam, n_train=len(df), models=models, selected=selected, calibrators=cals,
                          physics_ctdi=phys, cv_summary=summaries, oof=oofs, train_df=df.reset_index(drop=True),
                          audit=aud, ranges=ranges, peer_models=fit_peer_models(df, phys.kv_exponent_), alpha=alpha,
-                         sklearn_version=sklearn.__version__)
+                         sklearn_version=sklearn.__version__, prescan=prescan)
     path = pred.save(out_models)
     print(f"  saved {path.relative_to(ROOT)}")
     write_report(pred, out_reports / slug(exam))
@@ -129,6 +133,16 @@ def write_report(pred: DosePredictor, d: Path):
     L.append("\n## Physics law fitted to your scanner\n")
     for k_, v in phys.items():
         L.append(f"- {k_}: {v:.4g}")
+    if getattr(pred, "prescan", None) is not None:
+        L.append("\n## Pre-scan stage: predicting what the scanner will do, from BMI alone\n")
+        for t in pred.prescan.cv_summary:
+            s = pred.prescan.cv_summary[t]
+            L.append(f"\n### {t} (selected: {pred.prescan.selected[t]})\n")
+            L.append("| model | MAPE % | R² |")
+            L.append("|---|---|---|")
+            for _, r in s.iterrows():
+                star = " **(selected)**" if r["selected"] else ""
+                L.append(f"| {r['model']}{star} | {r['MAPE_%']:.2f} ± {r['MAPE_%_sd']:.2f} | {r['R2']:.3f} |")
     for t, s in pred.cv_summary.items():
         L.append(f"\n## {t}: repeated grouped 5-fold CV (mean ± sd over repeats)\n")
         L.append("| model | MAPE % | MAE | RMSE | R² | max APE % |")

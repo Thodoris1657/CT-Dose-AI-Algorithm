@@ -1,6 +1,6 @@
 # CT dose model report — CCTA
 
-Trained 2026-09-22T17:21:00 on 50 exams (48 unique).
+Trained 2026-09-29T20:02:13 on 50 exams (48 unique).
 
 ## Data audit
 
@@ -16,6 +16,35 @@ Trained 2026-09-22T17:21:00 on 50 exams (48 unique).
 
 - k (dose per mAs at 120 kV): 0.0605
 - kV exponent n: 2.533
+
+## Pre-scan stage: predicting what the scanner will do, from BMI alone
+
+
+### mAs (selected: Random forest)
+
+| model | MAPE % | R² |
+|---|---|---|
+| Random forest **(selected)** | 19.46 ± 0.55 | 0.375 |
+| Gradient boosting | 20.58 ± 0.84 | 0.266 |
+| Gaussian process | 21.19 ± 0.79 | 0.341 |
+| Log-quadratic in BMI | 21.35 ± 0.70 | 0.320 |
+| k-nearest neighbours | 21.43 ± 1.10 | 0.215 |
+| Neural network | 22.79 ± 0.97 | 0.050 |
+| Log-linear in BMI | 23.35 ± 1.40 | -0.354 |
+| Median (no BMI) | 27.92 ± 0.44 | -0.073 |
+
+### scan_length_cm (selected: Log-quadratic in BMI)
+
+| model | MAPE % | R² |
+|---|---|---|
+| Gaussian process | 5.30 ± 0.31 | 0.733 |
+| Log-quadratic in BMI **(selected)** | 5.37 ± 0.20 | 0.709 |
+| Random forest | 5.41 ± 0.24 | 0.637 |
+| Log-linear in BMI | 5.63 ± 0.25 | 0.612 |
+| Gradient boosting | 5.66 ± 0.26 | 0.597 |
+| k-nearest neighbours | 5.89 ± 0.17 | 0.547 |
+| Neural network | 6.05 ± 0.17 | 0.675 |
+| Median (no BMI) | 9.56 ± 0.14 | -0.053 |
 
 ## CTDIvol: repeated grouped 5-fold CV (mean ± sd over repeats)
 

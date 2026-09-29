@@ -22,6 +22,7 @@ automatically. This takes about a minute.
 | Tab | Purpose |
 |---|---|
 | **Predict** | CTDIvol and DLP with 90% prediction intervals, a comparison with a DLP reference level, and dose-vs-mAs curves for each kV. Warns when inputs fall outside the training data. |
+| **Pre-scan (BMI only)** | Dose estimate *before* the scan, when only BMI is known. A second model predicts what the tube-current modulation will choose, and the physics law turns that into CTDIvol and DLP, with honestly wider intervals. |
 | **Reduce dose** | The recommendation engine. Tries kV changes with mAs compensation that keeps the estimated iodine CNR, compares against peers with the same BMI in your own data, and shows the effect of shortening the scan. Constraints: minimum kV by BMI, tube mAs limit, available kV values. Also includes a manual what-if panel. |
 | **Phantom optimisation (BO)** | Bayesian optimisation. You scan the phantom at the setting it proposes, enter the measured CNR, and it proposes the next scan. It finds the lowest CTDIvol that still meets the CNR target, usually within 8–20 scans. The calibrated γ feeds *Reduce dose*. |
 | **Clinical learning (bandit)** | Safe contextual bandit. It proposes a protocol per patient, a radiologist approves it or overrides it, and scores the scan from 1 to 4 afterwards. It learns the lowest acceptable dose per BMI and lowers the dose step by step within safety limits. Scored exams with console doses also become training data. |
@@ -57,6 +58,24 @@ With 48 unique exams, the physics-informed model beats every black-box model, in
 expected result: CTDIvol is essentially a scanner constant times mAs times a kV factor. More complex models would
 become worthwhile with thousands of exams and extra inputs such as heart rate, pitch, collimation, gating mode and
 iterative-reconstruction level. The same pipeline trains them automatically when that data exists.
+
+## The pre-scan stage — where flexible models do win
+
+The dose law is physics, so no black-box model beats it. But the question *"what will the scanner choose for this
+patient?"* has no formula, and there the model competition comes out the other way (repeated cross-validation,
+50 exams, BMI as the only input):
+
+| Model | mAs error | Scan-length error |
+|---|---|---|
+| Median, ignoring BMI (baseline) | 27.9% | 9.6% |
+| Log-linear in BMI | 23.4% | 5.6% |
+| Gaussian process | 21.2% | **5.3%** (selected) |
+| **Random forest** | **19.5%** (selected) | 5.4% |
+| Neural network | 22.8% | 6.1% |
+
+Chaining the two stages gives a dose estimate from BMI alone (BMI → mAs → physics → CTDIvol, DLP). The interval
+combines both stages' out-of-fold residuals, so it is around ±35% instead of the ±7% you get once the mAs is
+known — wide, but honest, and useful for consenting, planning and triage.
 
 ## Learning loops (image quality)
 

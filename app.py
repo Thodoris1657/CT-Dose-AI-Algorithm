@@ -105,9 +105,9 @@ st.sidebar.markdown("### Reference level")
 drl = st.sidebar.number_input("DLP reference (mGy·cm)", 50, 5000, 400, 10,
                               help="PROTECTION VI suggests 400 mGy·cm for CCTA. Set your national/local DRL.")
 
-tab_pred, tab_opt, tab_bo, tab_clin, tab_batch, tab_model, tab_train = st.tabs(
-    ["Predict", "Reduce dose", "Phantom optimisation (BO)", "Clinical learning (bandit)", "Batch", "Model & data",
-     "Train / add exams"])
+tab_pred, tab_pre, tab_opt, tab_bo, tab_clin, tab_batch, tab_model, tab_train = st.tabs(
+    ["Predict", "Pre-scan (BMI only)", "Reduce dose", "Phantom optimisation (BO)", "Clinical learning (bandit)",
+     "Batch", "Model & data", "Train / add exams"])
 
 # =================================================================== PREDICT
 with tab_pred:
@@ -150,6 +150,72 @@ with tab_pred:
                               annotation_text=f"reference {drl}", annotation_position="top right")
             style(fig, title=f"{t} ({unit})", xaxis_title="mAs", showlegend=False)
             col.plotly_chart(fig, width="stretch")
+
+# =================================================================== PRE-SCAN
+with tab_pre:
+    if pred:
+        if getattr(pred, "prescan", None) is None:
+            st.info("This model was trained before the pre-scan stage existed. Run `python train.py` to add it.")
+        else:
+            st.subheader("Dose estimate before the scan — from BMI alone")
+            st.caption("The Predict tab needs the mAs, which the scanner only chooses once the patient is on the "
+                       "table. Here a second, purely statistical model predicts what the tube-current modulation "
+                       "will pick for this patient, and the physics law turns that into dose. Useful for "
+                       "consenting, planning and triage — with honestly wider intervals.")
+            a, b, c = st.columns(3)
+            kv_pre = a.selectbox("Planned kVp", [70, 80, 90, 100, 110, 120, 130, 140],
+                                 index=[70, 80, 90, 100, 110, 120, 130, 140].index(int(kVp)) if int(kVp) in
+                                 [70, 80, 90, 100, 110, 120, 130, 140] else 5)
+            know_len = b.toggle("I already know the scan length", False)
+            L_known = c.number_input("Scan length (cm)", 2.0, 150.0, float(L), 0.1, disabled=not know_len)
+            r = pred.predict_prescan(BMI, kVp=kv_pre, scan_length_cm=L_known if know_len else None)
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Expected mAs", f"{r['mAs']:.0f}")
+            m1.caption(f"90% range {r['mAs_lo']:.0f} – {r['mAs_hi']:.0f} (ATCM is not deterministic)")
+            m2.metric("CTDIvol (mGy)", f"{r['CTDIvol']:.1f}")
+            m2.caption(f"90% range {r['CTDIvol_lo']:.1f} – {r['CTDIvol_hi']:.1f}")
+            m3.metric("DLP (mGy·cm)", f"{r['DLP']:.0f}", delta=f"{(r['DLP']/drl-1)*100:+.0f}% vs reference",
+                      delta_color="inverse")
+            m3.caption(f"90% range {r['DLP_lo']:.0f} – {r['DLP_hi']:.0f}")
+            m4.metric("Scan length (cm)", f"{r['scan_length_cm']:.1f}")
+            m4.caption("predicted from BMI" if r["length_predicted"] else "entered by you")
+            if not r["in_domain"]:
+                st.warning("Outside the training data: " + (r["domain_note"] or "BMI beyond the observed range"))
+            st.caption("Once the scanner has chosen the mAs, the Predict tab gives a much tighter estimate "
+                       f"(±{(1-np.exp(pred.calibrators['CTDIvol'].q_lo_))*100:.0f}% on CTDIvol). The width here is "
+                       "the price of not yet knowing what the modulation will do.")
+
+            cu = pred.prescan.curve()
+            d_tr = pred.train_df
+            colA, colB = st.columns(2)
+            for col, t, unit, obs in ((colA, "mAs", "mAs", d_tr.mAs), (colB, "scan_length_cm", "cm", d_tr.scan_length_cm)):
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=np.r_[cu.BMI, cu.BMI[::-1]], y=np.r_[cu[t + "_hi"], cu[t + "_lo"][::-1]],
+                                         fill="toself", fillcolor=BLUE, opacity=0.13, line=dict(width=0),
+                                         hoverinfo="skip", showlegend=False))
+                fig.add_trace(go.Scatter(x=cu.BMI, y=cu[t], mode="lines", line=dict(color=BLUE, width=2),
+                                         name="model", hovertemplate="BMI %{x:.1f} → %{y:.0f}<extra></extra>"))
+                fig.add_trace(go.Scatter(x=d_tr.BMI, y=obs, mode="markers", name="past exams",
+                                         marker=dict(size=8, color=INK2, opacity=0.55,
+                                                     line=dict(color="white", width=1))))
+                fig.add_trace(go.Scatter(x=[BMI], y=[r["mAs"] if t == "mAs" else r["scan_length_cm"]],
+                                         mode="markers", name="this patient",
+                                         marker=dict(size=13, color=ORANGE, symbol="star",
+                                                     line=dict(color="white", width=1.5))))
+                style(fig, 340, title=f"{'Tube current-time product' if t == 'mAs' else 'Scan length'} vs BMI "
+                                      f"({pred.prescan.selected[t]}, 90% band)", xaxis_title="BMI",
+                      yaxis_title=unit, showlegend=(t == "mAs"))
+                col.plotly_chart(fig, width="stretch")
+
+            with st.expander("How the pre-scan models were chosen"):
+                st.caption("Same competition and cross-validation as the dose models. Unlike the dose law, there is "
+                           "no formula here — so flexible models genuinely win.")
+                for t in ("mAs", "scan_length_cm"):
+                    st.markdown(f"**{t}** — selected: {pred.prescan.selected[t]}")
+                    st.dataframe(pred.prescan.summary_table(t).style.format(
+                        {"MAPE_%": "{:.2f}", "MAPE_%_sd": "{:.2f}", "MAE": "{:.2f}", "RMSE": "{:.2f}", "R2": "{:.3f}"}),
+                        width="stretch", hide_index=True)
 
 # =================================================================== OPTIMIZE
 with tab_opt:

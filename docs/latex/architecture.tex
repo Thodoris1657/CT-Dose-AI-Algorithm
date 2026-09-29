@@ -1,0 +1,50 @@
+% Architecture diagram — shared by the report and the slides.
+% Requires: tikz (arrows.meta, positioning), the ct* colours and \ctdi.
+\begin{tikzpicture}[x=1mm,y=1mm,font=\sffamily\tiny,
+  base/.style={rectangle,rounded corners=1.2mm,align=center,inner sep=1.6mm,anchor=west},
+  box/.style={base,draw=ctline,fill=ctsurf},
+  core/.style={base,draw=ctblue,line width=0.7pt,fill=white},
+  loop/.style={base,draw=ctaqua,line width=0.6pt,fill=white},
+  ar/.style={-{Stealth[length=1.6mm]},draw=ctink2,line width=0.35pt},
+  arg/.style={-{Stealth[length=1.6mm]},draw=ctaqua,line width=0.45pt}]
+
+\node[box,text width=26mm,minimum height=22mm] (data) at (0,0)
+  {\textbf{Exam data}\\[1mm] BMI $\cdot$ kVp $\cdot$ mAs\\ scan length\\ \ctdi{} $\cdot$ DLP};
+
+\node[core,text width=40mm,minimum height=30mm] (core) at (34,0)
+  {\textbf{\textcolor{ctbluedark}{Physics-informed core}}\\[1mm]
+   $\ctdi = k\cdot\mathrm{mAs}\cdot(\mathrm{kV}/120)^{n}$\\
+   $\mathrm{DLP} = \ctdi \times \mathrm{length}$\\[1mm]
+   $+$ ML residual if it helps\\ $+$ conformal intervals\\[0.6mm]
+   {\color{ctink2}selected by grouped repeated CV}};
+
+\node[box,text width=38mm,minimum height=13mm] (pred) at (82,21)
+  {\textbf{Dose prediction}\\[0.6mm] \ctdi, DLP $+$ 90\% interval};
+
+\node[box,text width=38mm,minimum height=16mm] (rec) at (82,0)
+  {\textbf{Recommendation engine}\\[0.6mm] iso-CNR kV / mAs search\\ peer benchmark $\cdot$ guard-rails};
+
+\node[loop,text width=38mm,minimum height=16mm] (bo) at (82,-21)
+  {\textbf{Phantom optimisation}\\[0.6mm] Bayesian optimisation\\
+   {\color{ctink2}measured CNR $\rightarrow$ calibrated $\gamma$}};
+
+\node[box,text width=40mm,minimum height=16mm] (app) at (128,21)
+  {\textbf{Streamlit application}\\[0.6mm] 7 tabs $\cdot$ runs locally\\ one model per exam type};
+
+\node[loop,text width=40mm,minimum height=16mm] (band) at (128,-21)
+  {\textbf{Clinical learning}\\[0.6mm] safe contextual bandit\\
+   {\color{ctink2}radiologist scores 1--4}};
+
+\draw[ar] (data.east) -- (core.west);
+\draw[ar] (core.east) -- ++(3,0) |- (pred.west);
+\draw[ar] (core.east) -- (rec.west);
+\draw[ar] (core.east) -- ++(3,0) |- (bo.west);
+\draw[ar] (pred.east) -- (app.west);
+\draw[ar] (rec.east) -- ++(3,0) |- (app.west);
+\draw[ar] (bo.east) -- (band.west);
+\draw[arg] (bo.north) -- (rec.south);
+\draw[arg] (band.north) -- (app.south);
+\draw[arg] (bo.south) -- ++(0,-6) -| (data.south);
+\node[font=\sffamily\tiny,text=ctaqua,anchor=west] at (16,-33)
+  {scored exams and phantom measurements feed back into the data and the image-quality model};
+\end{tikzpicture}
