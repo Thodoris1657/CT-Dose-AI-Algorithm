@@ -7,40 +7,35 @@ Predicts **CTDIvol** and **DLP** from **BMI, kVp, mAs and scan length**, and rec
 ## Quick start (Windows)
 
 1. Install Python 3.10 or newer from python.org (tick "Add Python to PATH").
-2. Double-click **`setup_windows.bat`**. This is a one-time step. It creates `.venv`, installs the requirements and
-   trains the models.
-3. Double-click **`run_app.bat`**. The app opens in your browser at http://localhost:8501.
+2. Double-click **`setup_windows.bat`** once. It creates `.venv`, installs the requirements and trains the models.
+3. Double-click **`run_app.bat`**. The browser opens at http://127.0.0.1:8000.
 
-Manual commands: `pip install -r requirements.txt`, then `python app.py` or `streamlit run app.py`.
-`python app.py` relaunches itself through Streamlit and opens the browser. Other commands: `python train.py`
-and `python -m pytest -q`.
-On first start, or when your scikit-learn version differs from the one that saved the models, the app retrains
-automatically. This takes about a minute.
+By hand: `pip install -r requirements.txt`, then `python app.py` (or `shiny run --reload app.py` while
+developing). Other commands: `python train.py`, `python -m pytest -q`.
 
-## What the app does
+Everything runs locally. No patient data leaves the computer.
 
-The app opens in **Simple mode**: one input box at the top, four tabs, and plain-language explanations on screen.
-Switch to **Expert mode** in the sidebar to add the phantom loop, the clinical-learning loop, batch processing,
-the model card and training.
+## The application
 
-**Simple mode**
+Built with **Shiny for Python**. Five screens, written for clinical users: the technical material is all
+present, but it is never in the way.
 
-| Tab | Purpose |
-|---|---|
-| **1 · Dose of this scan** | Dose per slice (CTDIvol) and total dose (DLP), each with a 90% range, an approximate mSv figure, and a green/amber/red comparison with your reference level. |
-| **2 · How to lower it** | One recommended change in a card — new kV, new mAs, the saving — with the full option list, the reasoning and a what-if panel behind expanders. |
-| **3 · Before the scan** | The same estimate from BMI alone, before the scanner has chosen the mAs. |
-| **Help** | How to use it, a glossary of every term on screen, and the common questions. |
+| Screen | What it answers | Who it is for |
+|---|---|---|
+| **1 · Dose** | What dose does this scan deliver? Dose per slice and total dose, each with a 90% range, the equivalent in millisieverts, chest X-rays and years of background, and a green/amber/red comparison with your reference level. | everyone |
+| **2 · Lower it** | What should I change? One suggestion — a tube voltage and an mAs — with the trade-off chart behind it and the probability that the image stays diagnostic. | radiographer, physicist |
+| **3 · Before the scan** | What will this patient receive, before the scanner has chosen the mAs? | consent, planning, audit |
+| **Learn** | What do these words mean, and why does lower kV save so much dose? Glossary, worked explanation, honest limits. | new users, trainees |
+| **Advanced** | Model card and accuracy, the data-quality screen, phantom testing, learning from radiologists, batch prediction. | medical physicist |
 
-**Expert mode adds**
+Design decisions that matter for a clinical user:
 
-| Tab | Purpose |
-|---|---|
-| **Phantom testing** | Bayesian optimisation. You scan a phantom at the setting it proposes, enter the measured CNR, and it proposes the next one. It finds the lowest CTDIvol that still meets the CNR target, usually within 8–20 scans, and calibrates the image-quality model used by tab 2. |
-| **Learning from doctors** | Safe contextual bandit. One proposal per patient, a radiologist approves or overrides it, then scores the images 1–4. It learns the lowest acceptable dose per BMI, in small evidenced steps. |
-| **Many scans at once** | Upload a CSV, Excel or PDF file and predict every row. If the file includes the measured doses, it also reports the error. |
-| **Model details** | Cross-validation results for every candidate model, the fitted dose law, predicted-vs-measured plots and the data audit. |
-| **Add data** | Upload data for another examination type. Each one gets its own model. |
+* **One patient panel** on the left drives every screen; move a slider and all five update instantly.
+* **Preset buttons** (Slim / Average / Large / Very large) so a first-time user has sensible numbers in one click.
+* **Every technical term is underlined** and explains itself on hover; nothing requires a manual.
+* **Plain-language verdicts** rather than bare numbers: *"This scan is 2.6× your reference level."*
+* **The suggestion is a single card**, not a table to interpret: set 100 kV and 740 mAs, −39% dose, same quality.
+* The previous Streamlit interface is kept in `legacy/app_streamlit.py` for reference.
 
 ## Modelling approach
 
