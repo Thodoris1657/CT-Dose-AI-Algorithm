@@ -1,10 +1,22 @@
+# core
 numpy>=1.24
 pandas>=2.0
 scikit-learn>=1.3
 scipy>=1.10
 joblib>=1.3
-streamlit>=1.45
+
+# user interface
+shiny>=1.0
+shinywidgets>=0.3
+faicons>=0.2
 plotly>=5.19
+
+# data import
 pdfplumber>=0.10
 openpyxl>=3.1
+
+# development
 pytest>=7
+
+# only needed for the previous interface in legacy/app_streamlit.py
+# streamlit>=1.45
