@@ -27,6 +27,7 @@ def metrics(y, p) -> dict:
     ss = ((y - y.mean()) ** 2).sum()
     return {
         "MAPE_%": float(np.mean(np.abs(err) / y) * 100),
+        "MedAPE_%": float(np.median(np.abs(err) / y) * 100),
         "MAE": float(np.mean(np.abs(err))),
         "RMSE": float(np.sqrt(np.mean(err ** 2))),
         "R2": float(1 - (err ** 2).sum() / ss) if ss > 0 else float("nan"),
