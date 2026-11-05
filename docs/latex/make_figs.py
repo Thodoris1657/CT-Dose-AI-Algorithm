@@ -15,7 +15,7 @@ plt.rcParams.update({"font.size": 10, "font.family": "DejaVu Sans", "axes.edgeco
                      "axes.labelcolor": INK2, "text.color": INK, "xtick.color": INK2, "ytick.color": INK2,
                      "axes.grid": True, "grid.color": GRID, "grid.linewidth": .8, "axes.axisbelow": True,
                      "figure.facecolor": "white", "savefig.facecolor": "white"})
-OUT = "/home/claude/docs/figs/"
+OUT = "/home/claude/proj/docs/latex/figs/"
 def save(fig, name):
     fig.tight_layout(); fig.savefig(OUT + name, dpi=200, bbox_inches="tight"); plt.close(fig); print(name)
 

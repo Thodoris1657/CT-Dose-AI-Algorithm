@@ -1,0 +1,16 @@
+# Normalise text files, keep binaries intact and out of diffs.
+* text=auto eol=lf
+
+*.py    text diff=python
+*.md    text
+*.csv   text
+*.tex   text
+
+*.joblib binary
+*.png    binary
+*.pdf    binary
+*.xlsx   binary
+
+# Generated artefacts: keep them in the repo, but don't let them dominate review
+docs/latex/figs/*.png linguist-generated=true
+models/*.joblib       linguist-generated=true

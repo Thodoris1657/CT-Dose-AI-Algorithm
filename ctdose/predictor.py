@@ -37,6 +37,7 @@ class DosePredictor:
     ranges: dict
     peer_models: dict = field(default_factory=dict)  # quantile -> QuantileRegressor (CTDI@120 vs BMI)
     prescan: object = None            # PrescanPredictor: BMI -> mAs, scan length (pre-scan planning)
+    quality: dict = field(default_factory=dict)   # data-quality screen: flagged rows and the policy applied
     alpha: float = 0.10
     sklearn_version: str = ""
     trained_at: str = field(default_factory=lambda: dt.datetime.now().isoformat(timespec="seconds"))

@@ -26,6 +26,7 @@ import sklearn
 from sklearn.base import clone
 
 from ctdose.data import FEATURES, TARGETS, audit, load_table, row_groups
+from ctdose import quality
 from ctdose.evaluation import ConformalCalibrator, cross_validate, select_one_se
 from ctdose.models import PhysicsModel, candidates
 from ctdose.prescan import PrescanPredictor
@@ -65,8 +66,25 @@ def load_all(paths: list[Path], include_clinical: bool = True) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def train_exam(df: pd.DataFrame, exam: str, repeats: int, k: int, alpha: float, out_models: Path, out_reports: Path):
+def train_exam(df: pd.DataFrame, exam: str, repeats: int, k: int, alpha: float, out_models: Path,
+               out_reports: Path, keep_flagged: bool = False):
     print(f"\n=== {exam}: {len(df)} rows ===")
+    qrep = quality.report(df)
+    df_all = df.reset_index(drop=True)
+    if not keep_flagged:
+        df, held = quality.split(df_all)
+        if len(held):
+            print(f"  data quality: {len(held)} row(s) held out of training as likely transcription errors "
+                  f"(rows {held.row.astype(int).tolist()}); they stay in the data file.")
+            for h in held.itertuples():
+                print(f"    row {int(h.row)}: {h.reason}")
+    if qrep.get("systematic_cluster"):
+        c = qrep["systematic_cluster"]
+        print(f"  data quality: {c['n']} rows share a {c['mean_yield_dev_pct']:+.0f}% dose-per-mAs "
+              f"(rows {c['rows']}) — a second scan mode, kept for training.")
+    qrep["length_predictable"] = quality.length_is_predictable(df_all)
+    qrep["training_rows"] = int(len(df))
+    qrep["policy"] = "flagged rows kept" if keep_flagged else "rows flagged as errors excluded from training"
     aud = audit(df)
     print("  audit:", json.dumps({k_: aud[k_] for k_ in ("n_unique", "kVp_levels", "duplicate_rows", "yield_outliers",
                                                         "corr_Leff_vs_scan_length")}, ensure_ascii=False))
@@ -97,7 +115,7 @@ def train_exam(df: pd.DataFrame, exam: str, repeats: int, k: int, alpha: float, 
     pred = DosePredictor(exam=exam, n_train=len(df), models=models, selected=selected, calibrators=cals,
                          physics_ctdi=phys, cv_summary=summaries, oof=oofs, train_df=df.reset_index(drop=True),
                          audit=aud, ranges=ranges, peer_models=fit_peer_models(df, phys.kv_exponent_), alpha=alpha,
-                         sklearn_version=sklearn.__version__, prescan=prescan)
+                         sklearn_version=sklearn.__version__, prescan=prescan, quality=qrep)
     path = pred.save(out_models)
     print(f"  saved {path.relative_to(ROOT)}")
     write_report(pred, out_reports / slug(exam))
@@ -157,19 +175,27 @@ def write_report(pred: DosePredictor, d: Path):
     print(f"  report  {(d / 'report.md').relative_to(ROOT)}")
 
 
-def train_all(paths: list[Path] | None = None, repeats: int = 10, folds: int = 5, alpha: float = 0.10):
+def train_all(paths: list[Path] | None = None, repeats: int = 10, folds: int = 5, alpha: float = 0.10,
+              keep_flagged: bool = False):
     if not paths:
         dd = ROOT / "data"
+        # only the top level of data/ is training data; data/raw/ holds the original source files,
+        # data/clinical/ the scored exams, data/phantom/ the campaigns.
         paths = sorted([*dd.glob("*.csv"), *dd.glob("*.xlsx")])
         if not paths:
             paths = sorted(dd.glob("*.pdf"))
     df = load_all(paths)
+    print(f"\n  training data: {len(df)} rows from {len(paths)} file(s): {[p.name for p in paths]}")
+    dup = int(df.duplicated(FEATURES + TARGETS).sum())
+    if dup:
+        print(f"  note: {dup} exactly duplicated rows are present; they are kept together in every CV fold.")
     out = {}
     for exam, g in df.groupby("exam"):
         if len(g) < 15:
             print(f"\n=== {exam}: only {len(g)} rows – need ≥15 to train, skipped")
             continue
-        out[exam] = train_exam(g.reset_index(drop=True), exam, repeats, folds, alpha, ROOT / "models", ROOT / "reports")
+        out[exam] = train_exam(g.reset_index(drop=True), exam, repeats, folds, alpha, ROOT / "models",
+                               ROOT / "reports", keep_flagged)
     return out
 
 
@@ -179,8 +205,10 @@ def main():
     ap.add_argument("--repeats", type=int, default=10)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--alpha", type=float, default=0.10, help="1 - interval coverage")
+    ap.add_argument("--keep-flagged", action="store_true",
+                    help="train on every row, including those the quality screen flags as likely errors")
     a = ap.parse_args()
-    train_all([Path(p) for p in a.data] if a.data else None, a.repeats, a.folds, a.alpha)
+    train_all([Path(p) for p in a.data] if a.data else None, a.repeats, a.folds, a.alpha, a.keep_flagged)
 
 
 if __name__ == "__main__":
