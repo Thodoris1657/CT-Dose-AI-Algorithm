@@ -1,0 +1,288 @@
+% =====================================================================
+%  CT Dose AI — the machine learning, in four pages
+%  pdflatex CT_Dose_AI_ML_Methods.tex   (twice)
+% =====================================================================
+\documentclass[10pt,a4paper,twocolumn]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{helvet}\renewcommand{\familydefault}{\sfdefault}
+\usepackage{microtype,amsmath,amssymb}
+\usepackage{flushend}   % balance the two columns on the last page
+\usepackage[a4paper,top=16mm,bottom=16mm,left=14mm,right=14mm,columnsep=6mm]{geometry}
+\usepackage{titlesec,enumitem,booktabs,tabularx,array,colortbl,xcolor,graphicx}
+\usepackage[font=small,labelfont=bf,labelsep=period]{caption}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{ctblue}{HTML}{2A78D6}
+\definecolor{ctdark}{HTML}{1A4F94}
+\definecolor{ctaqua}{HTML}{1BAF7A}
+\definecolor{ctink2}{HTML}{52514E}
+\definecolor{ctsurf}{HTML}{F4F4F2}
+
+\titleformat{\section}{\normalsize\bfseries\color{ctdark}}{\thesection\;}{0pt}{}
+\titlespacing*{\section}{0pt}{10pt}{3pt}
+\titleformat{\subsection}{\small\bfseries\color{ctink2}}{\thesubsection\;}{0pt}{}
+\titlespacing*{\subsection}{0pt}{7pt}{2pt}
+\setlist[itemize]{leftmargin=11pt,itemsep=1pt,topsep=2pt}
+\setlength{\parskip}{3pt}\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.18}
+\newcommand{\ctdi}{\ensuremath{\mathrm{CTDI}_{\mathrm{vol}}}}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcommand{\hdr}{\rowcolor{ctsurf}}
+
+\begin{document}
+
+\twocolumn[{%
+\begin{center}
+{\LARGE\bfseries Machine learning in CT Dose AI}\\[3pt]
+{\large\color{ctink2} Model selection, uncertainty and sequential decision making\\
+for radiation dose in coronary CT angiography}\\[6pt]
+{\small Thodoris Fragos \quad\textbullet\quad November 2026 \quad\textbullet\quad
+\href{https://github.com/Thodoris1657/CT-Dose-AI-Algorithm}{github.com/Thodoris1657/CT-Dose-AI-Algorithm}}
+\end{center}
+\vspace{4pt}
+\hrule
+\vspace{8pt}
+}]
+
+\section{What the project has to decide}
+
+The dataset is 89 coronary CT angiography examinations with four inputs — BMI, tube voltage, tube
+current--time product and a scan-size field — and two dose outputs, \ctdi{} and DLP. The clinical request was
+twofold: predict the dose, and say what to change to reduce it. Those are different problems and I treat them
+separately throughout.
+
+\textbf{Prediction} is supervised regression on 89 rows. \textbf{Reduction} is a constrained decision problem:
+minimising dose alone is degenerate, because the minimum is no radiation at all. The constraint is image
+quality, and image quality is absent from the data. Most of the engineering effort went into that gap rather
+than into the regression.
+
+\section{The supervised core}
+
+\subsection{Parametrisation}
+
+Dose quantities are positive and their drivers multiply, so every model works on logarithms. CT physics gives
+the functional form outright:
+\[
+\ctdi = k\cdot \mathrm{mAs}\cdot(\mathrm{kV}/120)^{n},\qquad
+\mathrm{DLP} = \ctdi \times L .
+\]
+In log space this is linear, which allows two deliberate restrictions. First, the mAs exponent is \emph{fixed}
+at one rather than fitted: dose is linear in tube charge by definition, so fitting that coefficient would spend
+a degree of freedom on a known constant and would make extrapolation to unseen mAs unsafe. Second, the fit uses
+a Huber loss, because the data contains a minority cluster of examinations with a different dose yield
+(\S\ref{sec:quality}) and I did not want seven rows pulling the scanner constant.
+
+\subsection{The candidate set}
+
+I did not assume the physics model was best; it had to win a competition. Nine candidates, all fitted on the
+same log targets:
+
+\begin{itemize}
+\item the physics law, and physics $+$ BMI, physics $+$ length;
+\item \textbf{hybrid residual models} — physics prior plus a learned correction from a Gaussian process
+(RBF kernel, white-noise term), a small multilayer perceptron, or histogram gradient boosting;
+\item \textbf{purely statistical} — log--log ridge with second-order interactions;
+\item \textbf{black box} — histogram gradient boosting with monotonicity constraints on mAs and kV, and a bagged
+ensemble of deep multilayer perceptrons (the ``deep learning'' entry).
+\end{itemize}
+
+The hybrids are the interesting ones: if the physics law is complete, the residual learner should collapse
+towards zero and the hybrid should reduce to the physics law, costing only variance. That is exactly what
+happens, and the cost is measurable.
+
+\subsection{Validation protocol}
+
+Repeated grouped $K$-fold cross-validation, $K=5$ with 10 repeats, so each model is fitted 50 times. The
+grouping matters: the dataset contains exact duplicate rows, and a hash of the feature--target tuple forces
+duplicates into the same fold. Without that, a duplicated patient would appear in training and test
+simultaneously and flatter every model.
+
+Selection uses the \textbf{1-standard-error rule} — the simplest model whose mean error is within one standard
+error of the best. With 87 training rows the differences between the top models are within noise, and the rule
+prevents a complex model winning on a fluctuation.
+
+\subsection{Results}
+
+\begin{table}[h]\footnotesize
+\begin{tabularx}{\columnwidth}{@{}L r r@{}}
+\toprule
+\hdr \textbf{Model} & \textbf{\ctdi} & \textbf{DLP}\\
+\midrule
+\rowcolor{ctsurf!60}\textbf{Physics law} (selected) & \textbf{0.77\%} & \textbf{9.8\%}\\
+Physics $+$ GP residual & 0.97\% & 9.9\%\\
+Physics $+$ NN residual & 1.15\% & 9.8\%\\
+Log--log ridge (poly2) & 1.08\% & 10.1\%\\
+Deep MLP ensemble & 1.31\% & 13.1\%\\
+Monotone gradient boosting & 4.53\% & 11.7\%\\
+\bottomrule
+\end{tabularx}
+\caption{Cross-validated mean absolute percentage error, 89 examinations (87 after screening).}
+\end{table}
+
+The honest headline is that the flexible models lose, and they lose for a reason that is worth stating: the
+functional form is known exactly and the sample is small, so a network spends its capacity re-learning a
+straight line from 87 points and does it worse.
+
+\subsection{A prospective test}
+
+Cross-validation on 89 rows can still flatter a model. The dataset arrived in two batches — 50 examinations,
+then 39 more — which allows a genuine held-out test. I refitted on the original 50 and predicted the 37 clean
+new examinations the model had never seen:
+
+\begin{table}[h]\footnotesize
+\begin{tabularx}{\columnwidth}{@{}L r r@{}}
+\toprule
+\hdr \textbf{Trained on 50, tested on 37} & \textbf{\ctdi} & \textbf{DLP}\\
+\midrule
+\rowcolor{ctsurf!60}\textbf{Physics law} & \textbf{0.58\%} & 12.7\%\\
+Log--log ridge & 1.01\% & 11.6\%\\
+Deep MLP ensemble & 1.89\% & 14.2\%\\
+Monotone gradient boosting & 4.27\% & 12.5\%\\
+\bottomrule
+\end{tabularx}
+\caption{Median absolute error of the physics law on unseen examinations was 0.15\%.}
+\end{table}
+
+The fitted constants moved by almost nothing when the sample grew by 78\%: $k$ from 0.06050 to 0.06048 and $n$
+from 2.533 to 2.531. A model whose parameters are stable under a large increase in data is estimating a
+property of the scanner rather than fitting the sample, and that is the argument I would defend.
+
+\section{Uncertainty}
+
+A point estimate without an interval invites misuse, so predictions carry \textbf{conformal prediction
+intervals} built on out-of-fold log residuals $r_i=\log y_i-\log\hat y_i$. The bounds are empirical quantiles
+with the finite-sample correction,
+\[
+q_{\mathrm{lo}}=Q_{\lfloor (n+1)\alpha/2\rfloor/n}(r),\quad
+q_{\mathrm{hi}}=Q_{\lceil (n+1)(1-\alpha/2)\rceil/n}(r),
+\]
+giving the multiplicative interval $[\hat y e^{q_{\mathrm{lo}}},\,\hat y e^{q_{\mathrm{hi}}}]$. The attraction is
+that coverage holds under exchangeability alone — no normality, no homoscedasticity. Measured out-of-fold
+coverage is 92\% against a 90\% target for both quantities, and the \ctdi{} interval is visibly asymmetric
+($\times[0.93,1.00]$), which is the deviant-yield cluster showing up in the lower tail exactly as it should.
+
+Separately, every prediction is checked against an \textbf{applicability domain}: inputs outside the training
+ranges are flagged, and any tube voltage absent from the data (80, 100 kV here) raises an explicit
+extrapolation warning in the interface. The model is allowed to extrapolate — the physics supports it — but it
+is not allowed to do so silently.
+
+\section{Predicting what the scanner will do}
+
+The dose model needs the mAs, which the automatic tube-current modulation only chooses once the patient is
+positioned. A second stage predicts that choice from BMI alone, so the dose can be estimated before the scan.
+There is no formula here, and the ranking inverts:
+
+\begin{table}[h]\footnotesize
+\begin{tabularx}{\columnwidth}{@{}L r r@{}}
+\toprule
+\hdr \textbf{From BMI alone} & \textbf{mAs} & \textbf{length}\\
+\midrule
+Median, ignoring BMI & 30.6\% & 10.5\%\\
+Log-linear in BMI & 23.6\% & 5.8\%\\
+Log-quadratic & 21.2\% & \textbf{5.0\%}\\
+Gaussian process & 21.3\% & 5.3\%\\
+Random forest & 23.6\% & 5.5\%\\
+\rowcolor{ctsurf!60}\textbf{Neural network} & \textbf{20.8\%} & 5.3\%\\
+\bottomrule
+\end{tabularx}
+\caption{The one task where flexible models win. On 50 examinations a random forest was selected; on 89 the
+network takes over, so the ranking is still moving.}
+\end{table}
+
+Chaining two models means chaining two error distributions. Rather than adding variances under a normality
+assumption, I convolve the two empirical residual distributions by Monte Carlo, which is one line of code and
+assumes nothing. The resulting pre-scan interval is roughly $\pm$35\% against $\pm$7\% once the mAs is known.
+That width is not a defect; it is the quantitative statement of how unpredictable the modulation is.
+
+\section{Data quality as an algorithm}
+\label{sec:quality}
+
+Dose values are typed by hand off a console, and in a dataset of this size two mistyped numbers do real damage.
+Rather than eyeballing the file I built a screen that uses physics as the test statistic:
+$\ctdi/\mathrm{mAs}$ must equal the scanner constant for that voltage, and $\mathrm{DLP}/\ctdi$ must be a
+plausible irradiated length. Robust location and scale (median, MAD) set the thresholds. Rows are labelled
+\texttt{ok}, \texttt{review} (a repeatable deviation — a second scan mode) or \texttt{error} (physically
+inconsistent in isolation); only \texttt{error} rows are withheld from training, and nothing is deleted from
+the file.
+
+The screen found two rows: one whose DLP implies 66 cm of coverage against 23 cm everywhere else, and one whose
+dose per mAs is 27\% off the constant. Excluding them moves \ctdi{} error from 1.18\% to 0.77\% and DLP $R^2$
+from 0.744 to 0.903. It also identified seven examinations sharing a $-7\%$ dose yield with almost no spread,
+which is a second scan mode rather than noise — a finding for the department, not a cleaning step.
+
+A related negative result is worth recording. With 87 clean examinations, the irradiated length implied by
+$\mathrm{DLP}/\ctdi$ is \emph{not} recoverable from the four inputs: a random forest achieves a
+cross-validated $R^2$ of 0.05. The residual DLP error is therefore irreducible with the current columns, which
+turns a suspicion into a measurement and gives the data provider a concrete request.
+
+\section{The decision layer}
+
+Minimising dose subject to constant image quality has a closed form. For a fixed patient, quantum noise scales
+as $\sigma\propto D^{-1/2}$ and iodine contrast as $C\propto \mathrm{kV}^{-\gamma}$ with $\gamma\approx1.35$,
+so holding contrast-to-noise at a fraction $\tau$ of the current protocol requires
+\[
+D_{\mathrm{new}}\;\ge\;D_{\mathrm{old}}\,\tau^{2}
+\left(\frac{\mathrm{kV_{new}}}{\mathrm{kV_{old}}}\right)^{\!2\gamma}.
+\]
+The engine evaluates each available voltage, inverts the \ctdi{} model for the compensating mAs, and ranks the
+results by DLP. Three constraints are enforced: a minimum voltage by BMI, the tube's maximum output, and the
+physical scan length. A fourth comparison is empirical — quantile regression of local dose against BMI gives
+the median and 25th-percentile dose actually delivered to similar patients, which is an achievable target that
+requires no extrapolation at all.
+
+\section{Acquiring the missing variable}
+
+The constraint above uses a literature exponent. Two active-learning components replace it with measurement.
+
+\subsection{Bayesian optimisation on a phantom}
+
+Objective: minimise \ctdi{} subject to measured CNR $\ge$ target. Dose is known analytically; CNR costs a
+phantom scan. The surrogate on $\log\mathrm{CNR}$ is a Bayesian linear model with physics priors
+($\gamma\sim\mathcal{N}(1.35,0.5^2)$, noise--dose exponent $\delta\sim\mathcal{N}(0.5,0.15^2)$) plus a Gaussian
+process residual for what the formula misses, such as photon starvation at low voltage. The priors are what
+make the method usable after two or three scans rather than thirty. Acquisition is constrained expected
+improvement,
+\[
+a(x)=\max\!\left(0,\,d^{*}-d(x)\right)\cdot\Pr\!\left[\mathrm{CNR}(x)\ge\text{target}\right].
+\]
+In simulation against a synthetic phantom with a known optimum, twelve campaigns converged in a median of eight
+scans to within about 8\% of the true constrained optimum, meeting the CNR target in 10 of 10 runs.
+
+\subsection{A safe contextual bandit in routine}
+
+Context is BMI; actions are voltage $\times$ dose-level combinations; the reward is a radiologist's 1--4
+diagnostic score, binarised at 3. The model is Bayesian logistic regression fitted by Laplace approximation,
+with physics-informed priors (more dose helps, lower voltage helps at equal dose, larger patients are harder).
+One shared model means every examination informs every action, which matters enormously at these sample sizes.
+Action selection is Thompson sampling: draw one posterior sample, take the lowest-dose action whose sampled
+acceptability clears the target. Exploration is therefore proportional to remaining uncertainty and decays on
+its own.
+
+Three safety constraints make it deployable rather than merely interesting: the BMI voltage floor; a
+pessimistic (10th-percentile) acceptability above 0.85; and a step limit forbidding proposals more than 15\%
+below the lowest dose already \emph{proven} acceptable at a similar BMI — the SafeOpt idea of expanding only
+into a region the posterior already considers safe. A human approves every proposal. Simulated against a reader
+whose acceptance follows true iodine CNR, 1\,500 patients give a 45--50\% dose reduction with a 3--5\%
+non-diagnostic rate, consistent with the 0.97 acceptability target that the department sets.
+
+\section*{\small References}
+{\footnotesize
+[1] Stocker TJ et al. \textit{PROTECTION VI}. Eur Heart J, 2018. ---
+[2] Vovk, Gammerman, Shafer. \textit{Algorithmic Learning in a Random World}. Springer. ---
+[3] Gelbart, Snoek, Adams. \textit{Bayesian Optimization with Unknown Constraints}. UAI, 2014. ---
+[4] Sui, Gotovos, Burdick, Krause. \textit{Safe Exploration for Optimization with Gaussian Processes}
+(SafeOpt). ICML, 2015. ---
+[5] Chapelle, Li. \textit{An Empirical Evaluation of Thompson Sampling}. NIPS, 2011. ---
+[6] Trattner S et al. \textit{Cardiac-specific conversion factors}. JACC Cardiovasc Imaging, 2018. ---
+[7] Hastie, Tibshirani, Friedman. \textit{The Elements of Statistical Learning}, §7.10 (the one-standard-error
+rule).
+\par}
+
+\vspace{4pt}
+{\scriptsize\color{ctink2}\hrule\vspace{3pt}
+Decision-support software for research use. Not a medical device, not clinically validated. Any protocol change
+requires approval by a medical physicist and the responsible radiologist.\par}
+
+\end{document}
