@@ -137,8 +137,43 @@ class DosePredictor:
         directory = Path(directory or MODELS_DIR)
         directory.mkdir(parents=True, exist_ok=True)
         p = directory / f"{slug(self.exam)}.joblib"
+        self._plain_object_strings()
         joblib.dump(self, p, compress=3)
         return p
+
+    def _plain_object_strings(self) -> None:
+        """Store text columns as plain object dtype.
+
+        pandas >= 3 gives string columns an Arrow-backed StringDtype, and
+        unpickling one requires pyarrow to be installed.  A deployment target
+        that has pandas but not pyarrow would fail to load the model at all.
+        Casting to object keeps the artefact loadable anywhere pandas is.
+        """
+        for df in self._frames():
+            for c in df.columns:
+                if isinstance(df[c].dtype, pd.StringDtype) or df[c].dtype.kind in "OU":
+                    df[c] = df[c].astype(object)
+            # the column names and row labels are Arrow-backed too, not just the values
+            if isinstance(df.columns.dtype, pd.StringDtype):
+                df.columns = df.columns.astype(object)
+            if isinstance(df.index.dtype, pd.StringDtype):
+                df.index = df.index.astype(object)
+
+    def _frames(self):
+        seen = []
+        for v in vars(self).values():
+            if isinstance(v, pd.DataFrame):
+                seen.append(v)
+            elif isinstance(v, dict):
+                seen.extend(x for x in v.values() if isinstance(x, pd.DataFrame))
+        ps = getattr(self, "prescan", None)
+        if ps is not None:
+            for v in vars(ps).values():
+                if isinstance(v, pd.DataFrame):
+                    seen.append(v)
+                elif isinstance(v, dict):
+                    seen.extend(x for x in v.values() if isinstance(x, pd.DataFrame))
+        return seen
 
     @staticmethod
     def load(path) -> "DosePredictor":
