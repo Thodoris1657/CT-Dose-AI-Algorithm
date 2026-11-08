@@ -1,7 +1,10 @@
 # core
+# scikit-learn is pinned to the major/minor the committed model was pickled
+# with: unpickling an estimator across a feature release is not guaranteed.
+# Bump this line and re-run `python train.py` together, never separately.
 numpy>=1.24
 pandas>=2.0
-scikit-learn>=1.3
+scikit-learn>=1.9,<1.10
 scipy>=1.10
 joblib>=1.3
 

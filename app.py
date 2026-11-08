@@ -1,6 +1,6 @@
 """CT Dose AI — radiation dose for CT, predicted and optimised.
 
-A Shiny for Python application written for clinical users: five screens, plain language,
+A Shiny for Python application written for clinical users: four screens, plain language,
 everything technical available but out of the way.
 
 Run it with either of:
@@ -12,6 +12,7 @@ Nothing leaves the computer: the model, the data and the logs all stay in this f
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -54,6 +55,19 @@ def _load_models() -> dict[str, DosePredictor]:
 
 MODELS = _load_models()
 if not MODELS:
+    # Training at import time is right on a laptop and wrong on a server: hosts
+    # give the process ~60 s to accept a connection, and a CV sweep takes longer
+    # than that, so the deployment is killed mid-fit.  Only train when there is
+    # genuinely nothing to load and we are not running under a host.
+    _hosted = any(os.environ.get(v) for v in
+                  ("RSTUDIO_CONNECT", "CONNECT_SERVER", "POSIT_PRODUCT", "SHINY_SERVER", "PORT"))
+    if available_models() or _hosted or os.environ.get("CTDOSE_NO_AUTOTRAIN"):
+        raise SystemExit(
+            "No usable model could be loaded.\n"
+            f"Model files present: {sorted(available_models()) or 'none'}\n"
+            "If a file is listed above, it exists but failed to unpickle — see the error "
+            "printed above this line. Otherwise commit models/*.joblib, or run `python train.py`."
+        )
     print("No trained model found — running `python train.py` first.")
     from train import train_all
     train_all(repeats=3)
